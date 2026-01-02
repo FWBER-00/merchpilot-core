@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { getSkin } from "@/skins/registry";
 
 type Winner = {
   product_name: string;
@@ -20,16 +22,17 @@ type Pack = {
 };
 
 export default function Home() {
-  const [market, setMarket] = useState("");
-  const [category, setCategory] = useState("");
-  const [price, setPrice] = useState("");
-  const [channel, setChannel] = useState("");
+  const searchParams = useSearchParams();
+  const skinId = searchParams.get("skin") ?? "monthly-sales-pack";
+  const skin = getSkin(skinId);
+
+  // ✅ values record 하나로 통일 (입력 사라지는 버그 원천 차단)
+  const [values, setValues] = useState<Record<string, string>>({});
 
   const [raw, setRaw] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
 
-  // ✅ 잠금 관련 상태
   const [packId, setPackId] = useState<string>("");
   const [locked, setLocked] = useState<boolean>(false);
 
@@ -50,15 +53,26 @@ export default function Home() {
     if (text) setRaw(text);
   };
 
+  const setValue = (key: string, value: string) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const getValue = (key: string) => {
+    return String(values?.[key] ?? "");
+  };
+
   const generate = async () => {
     setErr("");
     setRaw("");
     setPackId("");
     setLocked(false);
 
-    if (!market || !category || !price || !channel) {
-      alert("Please select all options.");
-      return;
+    // ✅ 스킨 inputs 기준 필수 체크
+    for (const input of skin.inputs) {
+      if (!String(values?.[input.key] ?? "").trim()) {
+        alert("Please select all options.");
+        return;
+      }
     }
 
     setLoading(true);
@@ -66,7 +80,7 @@ export default function Home() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market, category, price, channel }),
+        body: JSON.stringify({ skinId: skin.id, values }),
       });
 
       const data = await res.json();
@@ -78,7 +92,6 @@ export default function Home() {
       setLocked(isLocked);
       setRaw(text);
 
-      // 프리뷰도 JSON이어야 카드 렌더됨
       try {
         JSON.parse(text);
       } catch {
@@ -91,7 +104,6 @@ export default function Home() {
     }
   };
 
-  // ✅ 로컬 테스트용 언락 버튼 (나중에 Lemon 결제로 교체)
   const unlockDev = async () => {
     if (!packId) return;
 
@@ -108,7 +120,6 @@ export default function Home() {
         return;
       }
 
-      // 언락 후 full 다시 요청
       await fetchFullIfUnlocked(packId);
     } catch {
       setErr("Unlock request failed.");
@@ -120,67 +131,35 @@ export default function Home() {
       <div className="w-full max-w-5xl px-6 py-12 space-y-8">
         {/* HERO */}
         <div className="space-y-3">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Dropshippers get 3 ready-to-sell product packs in 30 seconds.
-          </h1>
-          <p className="text-[#5B6472]">
-            Monthly sales packs with ad hooks, store copy and pricing — no more guessing what to sell.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{skin.brand.headline}</h1>
+          <p className="text-[#5B6472]">{skin.brand.subheadline}</p>
         </div>
 
         {/* INPUT CARD */}
         <div className="border border-[#E6EAF0] rounded-lg p-6 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-semibold">Pack Settings</h2>
-            <span className="text-xs text-[#5B6472]">{loading ? "Generating..." : "Select 4 options"}</span>
+            <span className="text-xs text-[#5B6472]">
+              {loading ? "Generating..." : `Select ${skin.inputs.length} options`}
+            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <select
-              value={market}
-              onChange={(e) => setMarket(e.target.value)}
-              className="border border-[#E6EAF0] rounded-md p-2"
-            >
-              <option value="">Market</option>
-              <option>US</option>
-              <option>UK</option>
-              <option>Global</option>
-            </select>
-
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="border border-[#E6EAF0] rounded-md p-2"
-            >
-              <option value="">Category</option>
-              <option>Pet</option>
-              <option>Home</option>
-              <option>Beauty</option>
-              <option>Fitness</option>
-              <option>Baby</option>
-            </select>
-
-            <select
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className="border border-[#E6EAF0] rounded-md p-2"
-            >
-              <option value="">Price Range</option>
-              <option>$10-25</option>
-              <option>$25-50</option>
-              <option>$50+</option>
-            </select>
-
-            <select
-              value={channel}
-              onChange={(e) => setChannel(e.target.value)}
-              className="border border-[#E6EAF0] rounded-md p-2"
-            >
-              <option value="">Ad Channel</option>
-              <option>TikTok</option>
-              <option>Meta</option>
-              <option>Google</option>
-            </select>
+            {skin.inputs.map((input) => (
+              <select
+                key={input.key}
+                value={getValue(input.key)}
+                onChange={(e) => setValue(input.key, e.target.value)}
+                className="border border-[#E6EAF0] rounded-md p-2"
+              >
+                <option value="">{input.label}</option>
+                {input.options.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ))}
           </div>
 
           <button
@@ -188,13 +167,13 @@ export default function Home() {
             disabled={loading}
             className="w-full bg-[#3CCB7F] text-white py-2 rounded-md disabled:opacity-60"
           >
-            {loading ? "Generating..." : "Generate Pack"}
+            {loading ? "Generating..." : skin.ctaLabel}
           </button>
 
           {err && <div className="text-sm text-red-600">{err}</div>}
         </div>
 
-        {/* RENDERED RESULT */}
+        {/* RESULT */}
         {pack && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -203,7 +182,6 @@ export default function Home() {
                 <h2 className="text-xl font-semibold">{pack.pack_title}</h2>
               </div>
 
-              {/* ✅ 잠금 상태일 때만 임시 언락 버튼 표시 */}
               {locked && (
                 <button
                   onClick={unlockDev}
@@ -215,7 +193,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* ✅ “전체 결과 블러” (UI용) */}
             <div className="relative">
               <div className={locked ? "filter blur-md pointer-events-none select-none" : ""}>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -278,7 +255,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* ✅ 블러 위 오버레이 */}
               {locked && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="bg-white/90 border border-[#E6EAF0] rounded-lg px-5 py-4 text-center space-y-2">

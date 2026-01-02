@@ -3,18 +3,33 @@ import { NextResponse } from "next/server";
 import { markPaid } from "@/lib/packStore";
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { packId, secret } = body;
+  const body = await req.json().catch(() => ({}));
+  const packId = String(body?.packId ?? "");
+  const secret = String(body?.secret ?? "");
 
   if (!packId) {
-    return NextResponse.json({ error: "Missing packId" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Missing packId" },
+      { status: 400 }
+    );
   }
 
-  // 로컬에서만 사용할 비밀키 (.env.local)
-  if (!process.env.DEV_UNLOCK_SECRET || secret !== process.env.DEV_UNLOCK_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // ✅ 항상 비번 검사 (환경 구분 없음)
+  const serverSecret = String(process.env.DEV_UNLOCK_SECRET ?? "");
+  if (!serverSecret || secret !== serverSecret) {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden" },
+      { status: 403 }
+    );
   }
 
   const ok = markPaid(packId);
-  return NextResponse.json({ ok });
+  if (!ok) {
+    return NextResponse.json(
+      { ok: false, error: "Unknown packId" },
+      { status: 404 }
+    );
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 });
 }

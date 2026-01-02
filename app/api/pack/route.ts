@@ -1,4 +1,3 @@
-// app/api/pack/route.ts
 import { NextResponse } from "next/server";
 import { getFullIfPaid, getPreview } from "@/lib/packStore";
 
@@ -15,7 +14,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ result: full, locked: false });
   }
 
-  // 결제 전이면 preview만 주거나(403)
   const preview = getPreview(id);
+
+  // ⭐ 여기만 추가된 핵심
+  if (!preview) {
+    return NextResponse.json({ error: "Unknown id" }, { status: 404 });
+  }
+
   return NextResponse.json({ result: preview, locked: true }, { status: 403 });
 }

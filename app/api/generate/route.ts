@@ -2,13 +2,17 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createPack } from "@/lib/packStore";
+import { getSkin } from "@/skins/registry";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+function fillTemplate(template: string, values: Record<string, string>) {
+  return template.replace(/\{(\w+)\}/g, (_, key) => String(values?.[key] ?? ""));
+}
+
 function makePreview(fullText: string) {
-  // 결제 전 프리뷰: product_name만 보여주고 나머지는 잠금
   try {
     const obj = JSON.parse(fullText);
 
@@ -32,7 +36,6 @@ function makePreview(fullText: string) {
 
     return JSON.stringify(preview);
   } catch {
-    // JSON 파싱이 깨지면, 최소 프리뷰로 반환
     return JSON.stringify({
       pack_title: "Monthly Sales Pack",
       winners: [
@@ -44,7 +47,10 @@ function makePreview(fullText: string) {
           landing_headline: "🔒 Unlock to view",
           feature_bullets: ["🔒", "🔒", "🔒", "🔒", "🔒"],
           pricing: { anchor: "🔒", sale: "🔒", bundle: "🔒" },
-          supplier_search: { keywords: ["🔒", "🔒", "🔒"], specs: ["🔒", "🔒", "🔒"] },
+          supplier_search: {
+            keywords: ["🔒", "🔒", "🔒"],
+            specs: ["🔒", "🔒", "🔒"],
+          },
           risk_notes: ["🔒", "🔒"],
         },
       ],
@@ -52,21 +58,7 @@ function makePreview(fullText: string) {
   }
 }
 
-export async function POST(req: Request) {
-  const body = await req.json();
-  const { market, category, price, channel } = body;
-
-  const prompt = `
-You are a senior dropshipping operator.
-Write in clear, specific, non-hype business language.
-Do NOT mention that you are an AI.
-
-Create a "Monthly Sales Pack" for:
-Market: ${market}
-Category: ${category}
-Price Range: ${price}
-Ad Channel: ${channel}
-
+const OUTPUT_SCHEMA_AND_RULES = `
 Return ONLY valid JSON (no markdown, no backticks).
 Schema:
 {
@@ -88,26 +80,93 @@ Schema:
 
 Rules:
 - Provide exactly 3 winners.
-- Make product ideas realistic for ${price} and ${channel}.
 - Avoid vague claims like "viral", "high demand" unless you give a concrete reason.
 - Hooks must be short (max 12 words each).
 - "supplier_search" must be keywords/specs, not direct store links.
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages: [{ role: "user", content: prompt }],
-  });
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => ({}));
 
-  const full = String(completion.choices[0].message.content ?? "");
-  const preview = makePreview(full);
+    const skinId = String(body?.skinId ?? "");
+    const values = (body?.values ?? {}) as Record<string, string>;
 
-  // 서버에 full+preview 저장 (결제 전에는 full을 절대 내려주지 않음)
-  const packId = createPack(full, preview);
+    // ✅ 하위호환: 기존 body({market,category,price,channel})로도 들어오면 values로 변환
+    if (!skinId) {
+      const maybe = body as any;
+      const legacyValues: Record<string, string> = {
+        market: String(maybe?.market ?? ""),
+        category: String(maybe?.category ?? ""),
+        price: String(maybe?.price ?? ""),
+        channel: String(maybe?.channel ?? ""),
+      };
+      const legacySkin = getSkin("monthly-sales-pack");
 
-  return NextResponse.json({
-    packId,
-    result: preview, // 프론트는 기존처럼 data.result를 raw로 받아서 렌더
-    locked: true,
-  });
+      for (const input of legacySkin.inputs) {
+        const v = String(legacyValues[input.key] ?? "").trim();
+        if (!v) {
+          return NextResponse.json(
+            { error: `Missing input: ${input.key}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      const userPrompt =
+        fillTemplate(legacySkin.prompt.template, legacyValues) +
+        "\n\n" +
+        OUTPUT_SCHEMA_AND_RULES;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          { role: "system", content: legacySkin.prompt.system },
+          { role: "user", content: userPrompt },
+        ],
+      });
+
+      const full = String(completion.choices[0].message.content ?? "");
+      const preview = makePreview(full);
+      const packId = createPack(full, preview);
+
+      return NextResponse.json({ packId, result: preview, locked: true });
+    }
+
+    const skin = getSkin(skinId);
+
+    // ✅ 스킨 inputs 기준 필수값 체크
+    for (const input of skin.inputs) {
+      const v = String(values[input.key] ?? "").trim();
+      if (!v) {
+        return NextResponse.json(
+          { error: `Missing input: ${input.key}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    const userPrompt =
+      fillTemplate(skin.prompt.template, values) + "\n\n" + OUTPUT_SCHEMA_AND_RULES;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        { role: "system", content: skin.prompt.system },
+        { role: "user", content: userPrompt },
+      ],
+    });
+
+    const full = String(completion.choices[0].message.content ?? "");
+    const preview = makePreview(full);
+
+    const packId = createPack(full, preview);
+
+    return NextResponse.json({ packId, result: preview, locked: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: "Server error", detail: String(e?.message ?? e) },
+      { status: 500 }
+    );
+  }
 }
