@@ -2,8 +2,9 @@
 import type { Skin } from "./types";
 import monthlySalesPackSkin from "./monthlySalesPackSkin";
 import airbnbInquiryReplySkin from "./airbnbInquiryReplySkin";
+import fiveStarReviewReplySkin from "./fiveStarReviewReplySkin";
 
-const SKINS: Skin[] = [monthlySalesPackSkin,  airbnbInquiryReplySkin];
+const SKINS: Skin[] = [monthlySalesPackSkin,  airbnbInquiryReplySkin, fiveStarReviewReplySkin];
 
 export function listSkins() {
   return SKINS.map((s) => ({ id: s.id, brand: s.brand }));
