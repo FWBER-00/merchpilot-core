@@ -4,36 +4,21 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getSkin } from "@/skins/registry";
 
-type Winner = {
-  product_name: string;
-  positioning: string;
-  why_it_works: string[];
-  ad_hooks: string[];
-  landing_headline: string;
-  feature_bullets: string[];
-  pricing: { anchor: string; sale: string; bundle: string };
-  supplier_search: { keywords: string[]; specs: string[] };
-  risk_notes: string[];
-};
-
 type Pack = {
   pack_title: string;
-  winners: Winner[];
+  winners: [any, any, any];
 };
 
 export default function HomeClient() {
   const searchParams = useSearchParams();
-  const skinId = searchParams.get("skin") ?? "monthly-sales-pack";
+  const skinId = searchParams.get("skin") ?? "email-sequence-pack";
   const skin = getSkin(skinId);
 
   const [values, setValues] = useState<Record<string, string>>({});
-
   const [raw, setRaw] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
-
-  const [packId, setPackId] = useState<string>("");
-  const [locked, setLocked] = useState<boolean>(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const pack: Pack | null = useMemo(() => {
     if (!raw) return null;
@@ -44,14 +29,6 @@ export default function HomeClient() {
     }
   }, [raw]);
 
-  const fetchFullIfUnlocked = async (id: string) => {
-    const res = await fetch(`/api/pack?id=${encodeURIComponent(id)}`);
-    const data = await res.json().catch(() => ({}));
-    const text = String(data?.result ?? "");
-    setLocked(Boolean(data?.locked));
-    if (text) setRaw(text);
-  };
-
   const setValue = (key: string, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
   };
@@ -60,11 +37,15 @@ export default function HomeClient() {
     return String(values?.[key] ?? "");
   };
 
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
   const generate = async () => {
     setErr("");
     setRaw("");
-    setPackId("");
-    setLocked(false);
 
     for (const input of skin.inputs) {
       if (!String(values?.[input.key] ?? "").trim()) {
@@ -82,12 +63,13 @@ export default function HomeClient() {
       });
 
       const data = await res.json();
-      const id = String(data?.packId ?? "");
-      const text = String(data?.result ?? "");
-      const isLocked = Boolean(data?.locked);
 
-      setPackId(id);
-      setLocked(isLocked);
+      if (data.error) {
+        setErr(data.error);
+        return;
+      }
+
+      const text = String(data?.result ?? "");
       setRaw(text);
 
       try {
@@ -102,31 +84,79 @@ export default function HomeClient() {
     }
   };
 
-  const unlockDev = async () => {
-    if (!packId) return;
+  // 🎨 Winner 렌더링 함수
+  const renderWinnerField = (label: string, value: any, copyId: string) => {
+    if (!value) return null;
 
-    const secret = prompt("DEV secret? (from .env.local)") ?? "";
-    try {
-      const res = await fetch("/api/dev-unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId, secret }),
-      });
-
-      if (!res.ok) {
-        setErr("Unlock failed. Check DEV secret.");
-        return;
-      }
-
-      await fetchFullIfUnlocked(packId);
-    } catch {
-      setErr("Unlock request failed.");
+    // 배열인 경우
+    if (Array.isArray(value)) {
+      return (
+        <div className="space-y-2" key={copyId}>
+          <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+          <ul className="space-y-1">
+            {value.map((item, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm">
+                <span className="text-[#5B6472]">•</span>
+                <span className="text-[#0B1220]">{String(item)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
     }
+
+    // 객체인 경우 (중첩)
+    if (typeof value === "object" && value !== null) {
+      return (
+        <div className="space-y-2" key={copyId}>
+          <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+          <div className="bg-[#F8FAFB] p-3 rounded border border-[#E6EAF0] space-y-2">
+            {Object.entries(value).map(([key, val]) => (
+              <div key={key} className="text-sm">
+                <span className="text-[#5B6472] font-medium">{key}: </span>
+                <span className="text-[#0B1220]">{String(val)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // 긴 텍스트인 경우
+    const strValue = String(value);
+    if (strValue.length > 200) {
+      return (
+        <div className="space-y-2" key={copyId}>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+            <button
+              onClick={() => copyToClipboard(strValue, copyId)}
+              className="text-xs bg-white border border-[#E6EAF0] px-3 py-1 rounded hover:border-[#3CCB7F] transition-colors"
+            >
+              {copied === copyId ? "✓ Copied" : "Copy"}
+            </button>
+          </div>
+          <div className="bg-[#F8FAFB] p-4 rounded-lg border border-[#E6EAF0]">
+            <pre className="text-sm text-[#0B1220] whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">
+              {strValue}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
+    // 짧은 텍스트
+    return (
+      <div className="space-y-1" key={copyId}>
+        <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+        <div className="text-sm text-[#0B1220]">{strValue}</div>
+      </div>
+    );
   };
 
   return (
     <main className="min-h-screen bg-white text-[#0B1220] flex justify-center">
-      <div className="w-full max-w-5xl px-6 py-12 space-y-8">
+      <div className="w-full max-w-7xl px-6 py-12 space-y-8">
         <div className="space-y-3">
           <h1 className="text-3xl font-bold tracking-tight">{skin.brand.headline}</h1>
           <p className="text-[#5B6472]">{skin.brand.subheadline}</p>
@@ -158,12 +188,13 @@ export default function HomeClient() {
             ))}
           </div>
 
+          {/* ✅ Generate 버튼만 초록색 */}
           <button
             onClick={generate}
             disabled={loading}
-            className="w-full bg-[#3CCB7F] text-white py-2 rounded-md disabled:opacity-60"
+            className="w-full bg-[#3CCB7F] text-white py-2 rounded-md disabled:opacity-60 hover:bg-[#2FB36D] transition-colors"
           >
-            {loading ? "Generating..." : skin.ctaLabel}
+            {loading ? "Generating..." : "Generate"}
           </button>
 
           {err && <div className="text-sm text-red-600">{err}</div>}
@@ -171,137 +202,53 @@ export default function HomeClient() {
 
         {pack && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs text-[#5B6472]">Generated Pack</div>
-                <h2 className="text-xl font-semibold">{pack.pack_title}</h2>
-              </div>
-
-              {locked && (
-                <button
-                  onClick={unlockDev}
-                  className="bg-black text-white px-4 py-2 rounded-md"
-                  title="Local dev only"
-                >
-                  Unlock (DEV)
-                </button>
-              )}
+            <div>
+              <div className="text-xs text-[#5B6472]">Generated Pack</div>
+              <h2 className="text-xl font-semibold">{pack.pack_title}</h2>
             </div>
 
-            <div className="relative">
-              <div className={locked ? "filter blur-md pointer-events-none select-none" : ""}>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {pack.winners?.slice(0, 3).map((w, idx) => (
-                    <div key={idx} className="border border-[#E6EAF0] rounded-lg p-5 space-y-3">
-                      <div className="text-xs text-[#5B6472]">Winner #{idx + 1}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {pack.winners.map((w, idx) => {
+                // ✅ title 또는 첫 번째 필드를 제목으로
+                const title = w.title || w.name || Object.values(w)[0] || `Idea ${idx + 1}`;
+                
+                // ✅ title/name 제외한 나머지 모든 필드
+                const allFields = Object.entries(w).filter(
+                  ([key]) => !['title', 'name'].includes(key)
+                );
 
-                      <div className="space-y-1">
-                        <div className="text-lg font-semibold">{w.product_name}</div>
-                        <div className="text-sm text-[#5B6472]">{w.positioning}</div>
+                return (
+                  <div key={idx} className="border border-[#E6EAF0] rounded-lg p-6 space-y-4">
+                    {/* Header */}
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <div className="text-xs text-[#5B6472]">Winner #{idx + 1}</div>
+                        <h3 className="text-xl font-bold text-[#0B1220]">
+                          {typeof title === 'string' ? title : JSON.stringify(title)}
+                        </h3>
                       </div>
-
-                      {/* ✅ 추가 1: Landing headline (디자인 유지) */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Landing headline</div>
-                        <div className="text-sm text-[#0B1220]">{w.landing_headline ?? ""}</div>
-                      </div>
-
-                      {/* ✅ 기존: Why it works */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Why it works</div>
-                        <ul className="text-sm text-[#0B1220] list-disc pl-5 space-y-1">
-                          {(w.why_it_works ?? []).slice(0, 3).map((x, i) => (
-                            <li key={i}>{x}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* ✅ 기존: Ad hooks */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Ad hooks</div>
-                        <ul className="text-sm text-[#0B1220] list-disc pl-5 space-y-1">
-                          {(w.ad_hooks ?? []).slice(0, 3).map((x, i) => (
-                            <li key={i}>{x}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* ✅ 추가 2: Feature bullets */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Feature bullets</div>
-                        <ul className="text-sm text-[#0B1220] list-disc pl-5 space-y-1">
-                          {(w.feature_bullets ?? []).slice(0, 5).map((x, i) => (
-                            <li key={i}>{x}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* ✅ 추가 3: Pricing */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Pricing</div>
-                        <div className="text-sm text-[#0B1220] space-y-1">
-                          <div>
-                            <span className="text-[#5B6472]">Anchor: </span>
-                            <span>{w.pricing?.anchor ?? ""}</span>
-                          </div>
-                          <div>
-                            <span className="text-[#5B6472]">Sale: </span>
-                            <span>{w.pricing?.sale ?? ""}</span>
-                          </div>
-                          <div>
-                            <span className="text-[#5B6472]">Bundle: </span>
-                            <span>{w.pricing?.bundle ?? ""}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* ✅ 추가 4: Supplier search */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Supplier search</div>
-                        <div className="text-sm text-[#0B1220] space-y-2">
-                          <div>
-                            <div className="text-xs text-[#5B6472]">Keywords</div>
-                            <ul className="text-sm text-[#0B1220] list-disc pl-5 space-y-1">
-                              {(w.supplier_search?.keywords ?? []).slice(0, 3).map((x, i) => (
-                                <li key={i}>{x}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div>
-                            <div className="text-xs text-[#5B6472]">Specs</div>
-                            <ul className="text-sm text-[#0B1220] list-disc pl-5 space-y-1">
-                              {(w.supplier_search?.specs ?? []).slice(0, 3).map((x, i) => (
-                                <li key={i}>{x}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* ✅ 추가 5: Risk notes */}
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold">Risk notes</div>
-                        <ul className="text-sm text-[#0B1220] list-disc pl-5 space-y-1">
-                          {(w.risk_notes ?? []).slice(0, 2).map((x, i) => (
-                            <li key={i}>{x}</li>
-                          ))}
-                        </ul>
-                      </div>
+                      {/* ✅ Copy All 버튼 작게 */}
+                      <button
+                        onClick={() => copyToClipboard(JSON.stringify(w, null, 2), `winner-all-${idx}`)}
+                        className="text-xs bg-white border border-[#E6EAF0] px-3 py-1.5 rounded hover:border-[#0B1220] transition-colors self-start"
+                      >
+                        {copied === `winner-all-${idx}` ? "✓ Copied" : "Copy All"}
+                      </button>
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              {locked && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="bg-white/90 border border-[#E6EAF0] rounded-lg px-5 py-4 text-center space-y-2">
-                    <div className="font-semibold">This pack is locked.</div>
-                    <div className="text-sm text-[#5B6472]">Pay to unlock the full results.</div>
-                    <div className="text-xs text-[#5B6472]">(For now: DEV unlock button above)</div>
+                    {/* ✅ 모든 필드 동일하게 표시 (구분 없음) */}
+                    <div className="space-y-4">
+                      {allFields.map(([key, value]) => 
+                        renderWinnerField(
+                          key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                          value,
+                          `field-${idx}-${key}`
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           </div>
         )}

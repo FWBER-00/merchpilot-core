@@ -1,7 +1,6 @@
 // app/api/generate/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { createPack } from "@/lib/packStore";
 import { getSkin } from "@/skins/registry";
 
 const openai = new OpenAI({
@@ -12,79 +11,6 @@ function fillTemplate(template: string, values: Record<string, string>) {
   return template.replace(/\{(\w+)\}/g, (_, key) => String(values?.[key] ?? ""));
 }
 
-function makePreview(fullText: string) {
-  try {
-    const obj = JSON.parse(fullText);
-
-    const preview = {
-      pack_title: obj.pack_title ?? "Monthly Sales Pack",
-      winners: (obj.winners ?? []).map((w: any) => ({
-        product_name: w.product_name ?? "Unknown product",
-        positioning: "🔒 Unlock to view",
-        why_it_works: ["🔒", "🔒", "🔒"],
-        ad_hooks: ["🔒", "🔒", "🔒"],
-        landing_headline: "🔒 Unlock to view",
-        feature_bullets: ["🔒", "🔒", "🔒", "🔒", "🔒"],
-        pricing: { anchor: "🔒", sale: "🔒", bundle: "🔒" },
-        supplier_search: {
-          keywords: ["🔒", "🔒", "🔒"],
-          specs: ["🔒", "🔒", "🔒"],
-        },
-        risk_notes: ["🔒", "🔒"],
-      })),
-    };
-
-    return JSON.stringify(preview);
-  } catch {
-    return JSON.stringify({
-      pack_title: "Monthly Sales Pack",
-      winners: [
-        {
-          product_name: "🔒 Unlock to view",
-          positioning: "🔒 Unlock to view",
-          why_it_works: ["🔒", "🔒", "🔒"],
-          ad_hooks: ["🔒", "🔒", "🔒"],
-          landing_headline: "🔒 Unlock to view",
-          feature_bullets: ["🔒", "🔒", "🔒", "🔒", "🔒"],
-          pricing: { anchor: "🔒", sale: "🔒", bundle: "🔒" },
-          supplier_search: {
-            keywords: ["🔒", "🔒", "🔒"],
-            specs: ["🔒", "🔒", "🔒"],
-          },
-          risk_notes: ["🔒", "🔒"],
-        },
-      ],
-    });
-  }
-}
-
-const OUTPUT_SCHEMA_AND_RULES = `
-Return ONLY valid JSON (no markdown, no backticks).
-Schema:
-{
-  "pack_title": string,
-  "winners": [
-    {
-      "product_name": string,
-      "positioning": string,
-      "why_it_works": [string, string, string],
-      "ad_hooks": [string, string, string],
-      "landing_headline": string,
-      "feature_bullets": [string, string, string, string, string],
-      "pricing": { "anchor": string, "sale": string, "bundle": string },
-      "supplier_search": { "keywords": [string, string, string], "specs": [string, string, string] },
-      "risk_notes": [string, string]
-    }
-  ]
-}
-
-Rules:
-- Provide exactly 3 winners.
-- Avoid vague claims like "viral", "high demand" unless you give a concrete reason.
-- Hooks must be short (max 12 words each).
-- "supplier_search" must be keywords/specs, not direct store links.
-`;
-
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -92,50 +18,12 @@ export async function POST(req: Request) {
     const skinId = String(body?.skinId ?? "");
     const values = (body?.values ?? {}) as Record<string, string>;
 
-    // ✅ 하위호환: 기존 body({market,category,price,channel})로도 들어오면 values로 변환
     if (!skinId) {
-      const maybe = body as any;
-      const legacyValues: Record<string, string> = {
-        market: String(maybe?.market ?? ""),
-        category: String(maybe?.category ?? ""),
-        price: String(maybe?.price ?? ""),
-        channel: String(maybe?.channel ?? ""),
-      };
-      const legacySkin = getSkin("monthly-sales-pack");
-
-      for (const input of legacySkin.inputs) {
-        const v = String(legacyValues[input.key] ?? "").trim();
-        if (!v) {
-          return NextResponse.json(
-            { error: `Missing input: ${input.key}` },
-            { status: 400 }
-          );
-        }
-      }
-
-      const userPrompt =
-        fillTemplate(legacySkin.prompt.template, legacyValues) +
-        "\n\n" +
-        OUTPUT_SCHEMA_AND_RULES;
-
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: [
-          { role: "system", content: legacySkin.prompt.system },
-          { role: "user", content: userPrompt },
-        ],
-      });
-
-      const full = String(completion.choices[0].message.content ?? "");
-      const preview = makePreview(full);
-      const packId = createPack(full, preview);
-
-      return NextResponse.json({ packId, result: preview, locked: true });
+      return NextResponse.json({ error: "Missing skinId" }, { status: 400 });
     }
 
     const skin = getSkin(skinId);
 
-    // ✅ 스킨 inputs 기준 필수값 체크
     for (const input of skin.inputs) {
       const v = String(values[input.key] ?? "").trim();
       if (!v) {
@@ -147,23 +35,49 @@ export async function POST(req: Request) {
     }
 
     const userPrompt =
-      fillTemplate(skin.prompt.template, values) + "\n\n" + OUTPUT_SCHEMA_AND_RULES;
+      fillTemplate(skin.prompt.template, values) + "\n\n" + skin.outputSchema;
+
+    console.log("🚀 Calling OpenAI...");
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: skin.prompt.system },
         { role: "user", content: userPrompt },
       ],
+      temperature: 0.7,
+      response_format: { type: "json_object" },
     });
 
-    const full = String(completion.choices[0].message.content ?? "");
-    const preview = makePreview(full);
+    let full = String(completion.choices[0].message.content ?? "");
 
-    const packId = createPack(full, preview);
+    console.log("✅ OpenAI response received");
 
-    return NextResponse.json({ packId, result: preview, locked: true });
+    full = full.trim();
+    if (full.startsWith("```json")) {
+      full = full.replace(/^```json\s*/g, "").replace(/```\s*$/g, "");
+    } else if (full.startsWith("```")) {
+      full = full.replace(/^```\s*/g, "").replace(/```\s*$/g, "");
+    }
+    full = full.trim();
+
+    try {
+      JSON.parse(full);
+      console.log("✅ JSON is valid");
+    } catch (parseError: any) {
+      console.error("❌ JSON parse error:", parseError.message);
+      return NextResponse.json(
+        {
+          error: "AI returned invalid JSON",
+          detail: parseError.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ result: full });
   } catch (e: any) {
+    console.error("❌ Server error:", e);
     return NextResponse.json(
       { error: "Server error", detail: String(e?.message ?? e) },
       { status: 500 }
