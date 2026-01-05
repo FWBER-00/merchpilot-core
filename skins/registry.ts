@@ -3,11 +3,13 @@ import type { Skin } from "./types";
 import emailSequencePackSkin from "./emailSequencePackSkin";
 import socialMediaPackSkin from "./socialMediaPackSkin";  // ✅ 추가
 import reviewResponseSkin from "./reviewResponseSkin";  // ✅ 추가
+import firstPurchaseSkin from "./firstPurchaseSkin";
 
 const SKINS: Skin[] = [
+  firstPurchaseSkin,  // 🔥 메인으로
   emailSequencePackSkin,
   socialMediaPackSkin,
-  reviewResponseSkin,  // ✅ 추가
+  reviewResponseSkin,
 ];
 
 export function listSkins() {

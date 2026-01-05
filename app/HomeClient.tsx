@@ -85,74 +85,131 @@ export default function HomeClient() {
   };
 
   // 🎨 Winner 렌더링 함수
-  const renderWinnerField = (label: string, value: any, copyId: string) => {
-    if (!value) return null;
+const renderWinnerField = (label: string, value: any, copyId: string) => {
+  if (!value) return null;
 
-    // 배열인 경우
-    if (Array.isArray(value)) {
-      return (
-        <div className="space-y-2" key={copyId}>
-          <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
-          <ul className="space-y-1">
-            {value.map((item, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <span className="text-[#5B6472]">•</span>
-                <span className="text-[#0B1220]">{String(item)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      );
-    }
-
-    // 객체인 경우 (중첩)
-    if (typeof value === "object" && value !== null) {
-      return (
-        <div className="space-y-2" key={copyId}>
-          <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
-          <div className="bg-[#F8FAFB] p-3 rounded border border-[#E6EAF0] space-y-2">
-            {Object.entries(value).map(([key, val]) => (
-              <div key={key} className="text-sm">
-                <span className="text-[#5B6472] font-medium">{key}: </span>
-                <span className="text-[#0B1220]">{String(val)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    // 긴 텍스트인 경우
-    const strValue = String(value);
-    if (strValue.length > 200) {
-      return (
-        <div className="space-y-2" key={copyId}>
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
-            <button
-              onClick={() => copyToClipboard(strValue, copyId)}
-              className="text-xs bg-white border border-[#E6EAF0] px-3 py-1 rounded hover:border-[#3CCB7F] transition-colors"
-            >
-              {copied === copyId ? "✓ Copied" : "Copy"}
-            </button>
-          </div>
-          <div className="bg-[#F8FAFB] p-4 rounded-lg border border-[#E6EAF0]">
-            <pre className="text-sm text-[#0B1220] whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">
-              {strValue}
-            </pre>
-          </div>
-        </div>
-      );
-    }
-
-    // 짧은 텍스트
+  // ✅ Day-by-Day Sequence 특별 처리
+  if (label === "Day By Day Sequence" && typeof value === "object" && !Array.isArray(value)) {
     return (
-      <div className="space-y-1" key={copyId}>
+      <div className="space-y-3" key={copyId}>
         <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
-        <div className="text-sm text-[#0B1220]">{strValue}</div>
+        {Object.entries(value).map(([dayKey, dayData]: [string, any]) => (
+          <div key={dayKey} className="bg-[#F8FAFB] p-4 rounded-lg border border-[#E6EAF0] space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-[#0B1220]">
+                {dayKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </div>
+              <button
+                onClick={() => {
+                  const emailText = `Subject: ${dayData.subject}\n\n${dayData.body}\n\nPsychology: ${dayData.psychology}\nTiming: ${dayData.timing}`;
+                  copyToClipboard(emailText, `${copyId}-${dayKey}`);
+                }}
+                className="text-xs bg-white border border-[#E6EAF0] px-3 py-1 rounded hover:border-[#3CCB7F] transition-colors"
+              >
+                {copied === `${copyId}-${dayKey}` ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+            
+            {dayData.subject && (
+              <div>
+                <span className="text-xs font-semibold text-[#5B6472]">Subject:</span>
+                <div className="text-sm text-[#0B1220] mt-1">{dayData.subject}</div>
+              </div>
+            )}
+            
+            {dayData.body && (
+              <div>
+                <span className="text-xs font-semibold text-[#5B6472]">Body:</span>
+                <div className="text-sm text-[#0B1220] whitespace-pre-wrap mt-1">{dayData.body}</div>
+              </div>
+            )}
+            
+            {dayData.psychology && (
+              <div>
+                <span className="text-xs font-semibold text-[#5B6472]">Why This Works:</span>
+                <div className="text-sm text-[#0B1220] mt-1">{dayData.psychology}</div>
+              </div>
+            )}
+            
+            {dayData.timing && (
+              <div>
+                <span className="text-xs font-semibold text-[#5B6472]">Timing:</span>
+                <div className="text-sm text-[#0B1220] mt-1">{dayData.timing}</div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     );
-  };
+  }
+
+  // 배열인 경우
+  if (Array.isArray(value)) {
+    return (
+      <div className="space-y-2" key={copyId}>
+        <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+        <ul className="space-y-1">
+          {value.map((item, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm">
+              <span className="text-[#5B6472]">•</span>
+              <span className="text-[#0B1220]">{String(item)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  // 객체인 경우 (중첩) - Revenue Modeling 등
+  if (typeof value === "object" && value !== null) {
+    return (
+      <div className="space-y-2" key={copyId}>
+        <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+        <div className="bg-[#F8FAFB] p-3 rounded border border-[#E6EAF0] space-y-2">
+          {Object.entries(value).map(([key, val]) => (
+            <div key={key} className="text-sm">
+              <span className="text-[#5B6472] font-medium">
+                {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}:{" "}
+              </span>
+              <span className="text-[#0B1220]">{String(val)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // 긴 텍스트인 경우 (500자 이상만 Copy 버튼 + 박스)
+  const strValue = String(value);
+  if (strValue.length > 500) {
+    return (
+      <div className="space-y-2" key={copyId}>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+          <button
+            onClick={() => copyToClipboard(strValue, copyId)}
+            className="text-xs bg-white border border-[#E6EAF0] px-3 py-1 rounded hover:border-[#3CCB7F] transition-colors"
+          >
+            {copied === copyId ? "✓ Copied" : "Copy"}
+          </button>
+        </div>
+        <div className="bg-[#F8FAFB] p-4 rounded-lg border border-[#E6EAF0]">
+          <pre className="text-sm text-[#0B1220] whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">
+            {strValue}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ 짧은 텍스트 (500자 미만) - Copy 버튼 없음, 박스 없음
+  return (
+    <div className="space-y-1" key={copyId}>
+      <div className="text-sm font-semibold text-[#0B1220]">{label}</div>
+      <div className="text-sm text-[#0B1220] leading-relaxed">{strValue}</div>
+    </div>
+  );
+};
 
   return (
     <main className="min-h-screen bg-white text-[#0B1220] flex justify-center">
